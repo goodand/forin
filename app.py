@@ -122,6 +122,101 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+import re
+
+# ✅ 서울 25개 자치구(정확한 매칭용)
+SEOUL_GU = [
+    "종로구","중구","용산구","성동구","광진구","동대문구","중랑구","성북구","강북구","도봉구","노원구",
+    "은평구","서대문구","마포구","양천구","강서구","구로구","금천구","영등포구","동작구","관악구",
+    "서초구","강남구","송파구","강동구"
+]
+
+# ✅ "강남" 처럼 '구' 없이 쓰는 케이스도 잡되, '중구'처럼 한 글자(중) 스템은 오탐 위험이라 제외
+SEOUL_GU_STEMS = [g[:-1] for g in SEOUL_GU if len(g[:-1]) >= 2]  # "강남", "송파" 등
+# 전체 후보(긴 것부터 매칭되게 정렬)
+SEOUL_GU_TOKENS = sorted(set(SEOUL_GU + SEOUL_GU_STEMS), key=len, reverse=True)
+SEOUL_GU_PATTERN = re.compile("|".join(map(re.escape, SEOUL_GU_TOKENS)))
+
+def extract_user_gu(residence: str):
+    """
+    사용자가 말한 residence에서 서울 '자치구' 1개를 최대한 뽑아 정규화해 반환.
+    예) "서울 강남", "강남역 근처" -> "강남구"
+    """
+    if not isinstance(residence, str) or not residence.strip():
+        return None
+    m = SEOUL_GU_PATTERN.search(residence)
+    if not m:
+        return None
+    token = m.group(0)
+    return token if token.endswith("구") else f"{token}구"
+
+def extract_seoul_gu_set(residence_required: str) -> set:
+    """
+    residence_required에서 언급된 서울 자치구들을 set으로 추출.
+    예) "강남·서초·송파구 거주" -> {"강남구","서초구","송파구"}
+    """
+    if not isinstance(residence_required, str) or not residence_required.strip():
+        return set()
+
+    hits = set()
+    for m in SEOUL_GU_PATTERN.finditer(residence_required):
+        token = m.group(0)
+        gu = token if token.endswith("구") else f"{token}구"
+        # 안전장치: 최종이 서울 25개 안에 없으면 버림(오탐 방지)
+        if gu in SEOUL_GU:
+            hits.add(gu)
+    return hits
+
+def extract_excluded_seoul_gu_set(residence_required: str) -> set:
+    """
+    'OO구 제외/미포함/빼고' 같은 문구에서 제외되는 구를 잡아냄.
+    예) "강남구 제외" -> {"강남구"}
+    """
+    if not isinstance(residence_required, str) or not residence_required.strip():
+        return set()
+
+    excluded = set()
+    text = residence_required.replace(" ", "")
+
+    # ✅ 패턴: (구명)(구)? + (제외/미포함/빼고/제한)
+    #    - 토큰은 SEOUL_GU_PATTERN으로 잡고, 주변에 제외 키워드가 있는지 확인하는 방식
+    for m in SEOUL_GU_PATTERN.finditer(text):
+        token = m.group(0)
+        gu = token if token.endswith("구") else f"{token}구"
+        if gu not in SEOUL_GU:
+            continue
+
+        tail = text[m.end(): m.end() + 8]   # 뒤쪽 몇 글자만 확인(성능+정확도)
+        if any(k in tail for k in ["제외", "미포함", "빼고", "제한"]):
+            excluded.add(gu)
+
+        head = text[max(0, m.start()-8): m.start()]  # "OO구를 제외한" 같은 케이스 대비
+        if any(k in head for k in ["제외", "미포함", "빼고", "제한"]):
+            excluded.add(gu)
+
+    return excluded
+
+def requires_seoul(residence_required: str) -> bool:
+    """
+    residence_required가 '서울(또는 서울 자치구)'를 요구하는지 여부.
+    - '서울', '서울시', '서울특별시', '서울시민', 또는 자치구가 언급되면 True
+    - 아무것도 없으면 False (전국/무관으로 간주)
+    """
+    if not isinstance(residence_required, str) or not residence_required.strip():
+        return False
+
+    txt = residence_required.replace(" ", "")
+    # 자치구 직접 언급이면 서울 요구로 간주
+    if extract_seoul_gu_set(txt):
+        return True
+
+    # 서울 키워드가 명확하면 True
+    if any(k in txt for k in ["서울", "서울시", "서울특별시", "서울시민", "서울거주"]):
+        return True
+
+    return False
+
+
 @st.cache_data
 def load_welfare_data():
     """통합된 welfare_save.csv 파일 로드"""
@@ -1248,6 +1343,7 @@ def main():
                     1 if user_info.get('income') is not None else 0,
                 ])
                 
+                #=====================여기부터 수정함====================#
                 # 3. 매칭 결과 결정
                 matched = st.session_state.get("last_matched", pd.DataFrame())
 
@@ -1266,7 +1362,6 @@ def main():
                     )
 
                     st.session_state.last_matched = matched
-                    st.session_state.last_matched = matched
                     new_match = True  # ✅ 여기서만 True
 
                 else:
@@ -1274,6 +1369,7 @@ def main():
                     # (detail/eligibility/apply 포함)
                     matched = pd.DataFrame()  # ✅ 중요: 이전 추천 결과를 이번 턴에 끌고오지 않게 비움
                     pass
+                #=======================여기까지 수정함====================#
 
                 # 3. 응답 생성
                 response = generate_response(
@@ -1292,9 +1388,11 @@ def main():
         # ⭐ 수정: intent가 match이고, 이번 턴에 새로 매칭했을 때만 카드 표시
         show_card = False
         card_programs = None
+        #======================여기부터 수정함====================#
         # if intent == "match" and info_count >= 3 and matched is not None and not matched.empty:
         show_card = bool(new_match and matched is not None and not matched.empty)
         card_programs = matched.copy() if show_card else None
+        #=======================여기까지 수정함====================#
 
         # ⭐ 디버깅용 - 세션에 저장
         st.session_state.debug_info = {
