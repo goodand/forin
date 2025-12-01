@@ -22,7 +22,14 @@ def extract_user_info(user_message: str, conversation_history: list) -> dict:
 - income: 월소득 (숫자, 만원 단위, 없으면 null) - "백수/무직"이면 0
 - income_type: "월" 또는 "연" (없으면 null)
 - income_scope: "개인" 또는 "부부합산" (명시되지 않았으면 null) <<여기 수정함
-- residence: 거주지역 (예: "서울", "서울 강남구", 없으면 null)
+- residence: 거주지역 (알 수 있으면 최대한 구 단위까지, 예: "서울 강서구", "서울 송파구", 알 수 없으면 null)
+- is_seoul_resident: 서울 거주 여부 (true, false, null 중 하나)
+  * 예시
+    - "서울 강서구에서 전세로 살아요" → residence: "서울 강서구", is_seoul_resident: true
+    - "강남역 근처 월세 살아요" → residence: "서울 강남구"로 추정 가능 → is_seoul_resident: true
+    - "삼성중앙역 근처 월세" → 서울 지하철역이므로 → residence: "서울 강남구"로 추정, is_seoul_resident: true
+    - "부산 사상구 고시원" → residence: "부산 사상구", is_seoul_resident: false
+    - "시청역 근처 월세"처럼 도시를 특정하기 어려운 경우 → residence: null, is_seoul_resident: null
 - employment_status: 고용상태 - 아래 규칙 적용:
   * "취준생", "취업준비", "구직중", "일자리 찾는 중" → "구직중"
   * "백수", "무직", "일 안 함" → "무직"  
