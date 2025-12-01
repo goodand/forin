@@ -186,6 +186,28 @@ def main():
                 )
                 user_info["median_percent"] = percent
                 user_info["median_bracket"] = bracket
+                # 여기 라인부터 수정
+
+                # 🔍 신혼부부인데 소득이 있는데, 이게 개인인지 부부합산인지 불명확한 경우
+                special = user_info.get("special_conditions", []) or []
+                is_newlywed = any("신혼" in s for s in special)
+
+                income = user_info.get("income")
+                income_scope = user_info.get("income_scope")  # extract_user_info에서 채움
+
+                # "부부 합산", "둘이 합쳐" 같은 표현이 들어 있었으면 scope를 강제로 부부합산으로 설정
+                # (혹시 LLM이 못 잡았을 경우 대비)
+                raw_text = prompt  # 이번 턴 사용자 입력만 간단히 사용
+                if income_scope is None:
+                    if any(kw in raw_text for kw in ["부부 합산", "둘이 합쳐", "두 명 합쳐", "둘 다 합쳐"]):
+                        user_info["income_scope"] = "부부합산"
+                        income_scope = "부부합산"
+
+                must_ask_couple_income = False
+                if is_newlywed and income is not None and not income_scope:
+                    must_ask_couple_income = True
+                    
+                # 여기라인까지 수정함
                         
                 
                 # 2.매칭 로직
@@ -221,7 +243,9 @@ def main():
                     intent=intent,
                     is_other_request=st.session_state.get("is_other_request", False),
                     already_programs=already_programs,
+                    must_ask_couple_income=must_ask_couple_income,  # ← 추가
              )
+
                 
         
         

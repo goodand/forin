@@ -21,8 +21,9 @@ def extract_user_info(user_message: str, conversation_history: list) -> dict:
 - age: 나이 (숫자, 없으면 null)
 - income: 월소득 (숫자, 만원 단위, 없으면 null) - "백수/무직"이면 0
 - income_type: "월" 또는 "연" (없으면 null)
+- income_scope: "개인" 또는 "부부합산" (명시되지 않았으면 null) <<여기 수정함
 - residence: 거주지역 (예: "서울", "서울 강남구", 없으면 null)
-- - employment_status: 고용상태 - 아래 규칙 적용:
+- employment_status: 고용상태 - 아래 규칙 적용:
   * "취준생", "취업준비", "구직중", "일자리 찾는 중" → "구직중"
   * "백수", "무직", "일 안 함" → "무직"  
   * "회사 다님", "직장인", "재직중" → "재직"
@@ -87,6 +88,7 @@ def generate_response(
     intent: str = "match",
     is_other_request: bool = False,
     already_programs: list | None = None,
+    must_ask_couple_income: bool = False, # << 여기 수정함
 ) -> str:
     """GPT를 사용해 친근한 응답 생성"""
     
@@ -110,6 +112,24 @@ def generate_response(
         mode_tag = "[ELIGIBILITY_MODE]"
     else:
         mode_tag = "[MATCH_MODE]"
+
+    # 8-1. 신혼부부인데 부부합산 여부가 불명확하면 반드시 물어보라는 지시 << 여기 수정함
+    couple_income_instruction = ""
+    if must_ask_couple_income:
+        couple_income_instruction = """
+[중요: 신혼부부 소득 관련 필수 질문]
+
+사용자의 특수조건에 '신혼부부'가 포함되어 있고 소득이 입력되어 있지만,
+이 소득이 개인 기준인지, 부부 합산 기준인지가 불명확합니다.
+
+이번 답변에서는 반드시 다음 질문을 포함해야 합니다:
+
+"지금 말씀해 주신 소득은 ○○님 개인 소득인지, 아니면 배우자분 소득까지 포함한 **부부 합산 소득**인지 알려주실 수 있을까요?
+신혼부부 지원은 대부분 부부 합산 소득을 기준으로 해서 이 부분이 중요합니다."
+
+이 질문은 자연스럽게 한 번만 물어보되, 다른 질문이 있더라도 이 질문은 꼭 포함하세요.
+"""
+
 
 
     user_prompt = f"""{mode_tag}
